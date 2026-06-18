@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WonkUp - Lean Canvas</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- html2pdf para descargas limpias en PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    
+    <script>
+        // Convertidor de seguridad para evitar fallos de CORS en el PDF
+        function convertImageToDataURL(imgElement) {
+            if (imgElement.src.startsWith('data:')) return;
+            const canvas = document.createElement('canvas');
+            canvas.width = imgElement.naturalWidth;
+            canvas.height = imgElement.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            try {
+                ctx.drawImage(imgElement, 0, 0);
+                imgElement.src = canvas.toDataURL('image/png');
+                imgElement.removeAttribute('crossorigin');
+            } catch (e) {
+                console.warn("Se activará el respaldo de texto para el logo en PDF:", e);
+            }
+        }
+
+        // Manejo ultra seguro de logos rotos o no encontrados
+        function handleImageError(imgElement, fallbackId) {
+            imgElement.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+            imgElement.classList.add('hidden');
+            const fallback = document.getElementById(fallbackId);
+            if (fallback) fallback.classList.remove('hidden');
+        }
+
+        // Mostrar texto de respaldo si el logo principal falla
+        function showTextLogoFallback() {
+            handleImageError(document.getElementById('header-logo'), 'text-logo-fallback');
+        }
+    </script>
+    
+    <style>
+        :root {
+            --wonkup-cielo: #50a8f3;
+            --wonkup-amarillo: #f1c22d;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* Contenedor del lienzo para mantener el formato horizontal en pantallas grandes */
+        .canvas-container {
+            min-width: 1100px;
+        }
+
+        /* Estilo base de los bloques del lienzo */
+        .canvas-block {
+            display: flex;
+            flex-direction: column;
+            background-color: #ffffff;
+            border: 2px solid #cbd5e1;
+            padding: 0.75rem;
+            position: relative;
+            transition: background-color 0.2s ease, border-color 0.2s ease;
+        }
+
+        /* Destacar bloque contenedor al arrastrar sobre él */
+        .canvas-block.dragover {
+            border-color: #50a8f3 !important;
+            background-color: rgba(80, 168, 243, 0.05) !important;
+        }
+        
+        /* Encabezados de los bloques */
+        .block-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid #f1f5f9;
+            padding-bottom: 0.25rem;
+        }
+
+        /* Estilo para las notas adhesivas (Post-its) */
+        .post-it {
+            color: #334155;
+            box-shadow: 2px 3px 6px rgba(0,0,0,0.12);
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+            line-height: 1.3;
+            border-bottom-right-radius: 12px;
+            position: relative;
+            animation: fadeIn 0.2s ease-in-out;
+            word-wrap: break-word;
+            padding-right: 2.2rem; /* Espacio para los botones de editar/borrar */
+            cursor: grab;
+        }
+        .post-it:active {
+            cursor: grabbing;
+            opacity: 0.8;
+        }
+        
+        /* Efecto de doblez en la esquina del post-it */
+        .post-it::after {
+            content: "";
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            border-width: 8px 8px 0 0;
+            border-style: solid;
+            border-color: rgba(0,0,0,0.15) #ffffff #ffffff rgba(0,0,0,0.15);
+            box-shadow: -1px -1px 2px rgba(0,0,0,0.05);
+            border-bottom-right-radius: 2px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        /* Ocultar botones e inputs al exportar a PDF */
+        .exporting .no-print, 
+        .exporting .add-note-btn,
+        .exporting .group-hover\:opacity-100,
+        .exporting [onclick*="editPostIt"],
+        .exporting [onclick*="remove"] {
+            display: none !important;
+        }
+        .exporting .canvas-block {
+            border-color: #94a3b8;
+        }
+
+        /* ESTILOS EXCLUSIVOS PARA QUE LAS NOTAS SE VEAN PERFECTAS EN EL PDF */
+        .exporting .post-it {
+            box-shadow: none !important; /* Elimina sombras que a veces ensucian el render del PDF */
+            border: 1.5px solid rgba(0, 0, 0, 0.15) !important; /* Dibuja un contorno claro para cada nota */
+            color: #0f172a !important; /* Texto en negro pizarra de alto contraste */
+            font-weight: 600 !important; /* Texto ligeramente más grueso y legible */
+        }
+
+        /* Eliminar pliegues 3D en la exportación para evitar caídas de html2canvas */
+        .exporting .post-it::after {
+            display: none !important;
+        }
+
+        /* Sobrescribir colores de fondo con versiones más intensas y opacas en la exportación */
+        .exporting .bg-yellow-200 { background-color: #fde047 !important; } /* Amarillo enriquecido */
+        .exporting .bg-blue-200 { background-color: #93c5fd !important; }   /* Azul enriquecido */
+        .exporting .bg-green-200 { background-color: #86efac !important; }  /* Verde enriquecido */
+        .exporting .bg-pink-200 { background-color: #f9a8d4 !important; }   /* Rosa enriquecido */
+        .exporting .bg-indigo-200 { background-color: #a5b4fc !important; } /* Índigo enriquecido */
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- BARRA SUPERIOR (No se imprime) -->
+    <header class="bg-white shadow-md px-6 py-4 flex justify-between items-center z-50 flex-shrink-0 no-print">
+        <div class="flex items-center gap-3">
+            <!-- Imagen del Logo Oficial de WonkUp (con detector de error automático) -->
+            <img id="header-logo" crossorigin="anonymous" src="logo_wonkup.png" onload="convertImageToDataURL(this)" alt="WonkUp" class="h-11 w-auto object-contain" onerror="showTextLogoFallback()">
+            
+            <!-- Logo en texto de respaldo (Oculto si la imagen carga correctamente) -->
+            <div id="text-logo-fallback" class="hidden flex items-center gap-2">
+                <div class="bg-[#f1c22d] text-slate-900 px-2 py-1 rounded font-black text-sm">W</div>
+                <h1 class="text-xl font-black text-[#50a8f3]">WONK<span class="text-[#f1c22d]">UP</span></h1>
+            </div>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="exportToPDF()" class="bg-[#50a8f3] hover:bg-[#3ca0f0] text-white font-semibold py-2.5 px-5 rounded-lg shadow-md transition-colors flex items-center gap-2">
+                <i class="fas fa-file-pdf"></i> Descargar PDF
+            </button>
+        </div>
+    </header>
+
+    <!-- ÁREA DE TRABAJO (Scrollable) -->
+    <main class="flex-grow overflow-auto p-4 lg:p-8 bg-slate-200/50 flex justify-center items-start">
+        
+        <!-- LIENZO DEL PDF -->
+        <div id="pdf-canvas" class="bg-white shadow-2xl p-6 canvas-container flex flex-col gap-4">
+            
+            <!-- Cabecera del Documento (Unificada y protegida contra cortes de PDF) -->
+            <div class="flex justify-between items-center border-b-2 border-slate-200 pb-4">
+                <!-- Título alineado a la izquierda (en dos líneas estables con divs nativos contra bugs) -->
+                <div class="text-left flex flex-col justify-center min-w-[180px]">
+                    <div class="text-lg md:text-xl font-black text-[#50a8f3] uppercase tracking-wide leading-none whitespace-nowrap">LEAN</div>
+                    <div class="text-lg md:text-xl font-black text-[#f1c22d] uppercase tracking-wide leading-none mt-1 whitespace-nowrap">CANVAS</div>
+                </div>
+
+                <!-- Inputs Centrales Ampliados -->
+                <div class="flex flex-col sm:flex-row gap-6 w-full lg:flex-grow justify-center items-center px-4">
+                    <div class="w-full max-w-xs text-center font-semibold">
+                        <label class="block text-[11px] font-extrabold text-[#50a8f3] uppercase tracking-wider mb-1"><i class="fas fa-lightbulb mr-1"></i> Idea:</label>
+                        <input type="text" class="w-full border-b-2 border-slate-200 bg-slate-50/50 p-2 text-sm rounded outline-none focus:border-[#50a8f3] text-center font-semibold text-slate-700 transition-all focus:bg-white" placeholder="Ej: Plataforma de delivery local...">
+                    </div>
+                    <div class="w-full max-w-md text-center font-semibold">
+                        <label class="block text-[11px] font-extrabold text-[#f1c22d] uppercase tracking-wider mb-1"><i class="fas fa-users mr-1"></i> Team:</label>
+                        <input type="text" class="w-full border-b-2 border-slate-200 bg-slate-50/50 p-2 text-sm rounded outline-none focus:border-[#f1c22d] text-center font-semibold text-slate-700 transition-all focus:bg-white" placeholder="Escribe los nombres...">
+                    </div>
+                </div>
+
+                <!-- Cabecera derecha con logo para el PDF -->
+                <div class="flex flex-col items-center lg:items-end lg:w-1/5 flex-shrink-0">
+                    <img id="pdf-logo" crossorigin="anonymous" src="logo_wonkup.png" onload="convertImageToDataURL(this)" alt="WonkUp" class="h-9 w-auto object-contain" onerror="handleImageError(this, 'pdf-text-logo')">
+                    <div id="pdf-text-logo" class="hidden text-right">
+                        <span class="text-xs font-black text-[#50a8f3]">WONK<span class="text-[#f1c22d]">UP</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GRILLA DEL CANVAS (10 columnas x 3 filas ampliadas verticalmente que se adaptan dinámicamente) -->
+            <div class="grid grid-cols-10 grid-rows-[minmax(220px,_auto)_minmax(220px,_auto)_minmax(180px,_auto)] gap-0 border-2 border-slate-300 rounded-lg overflow-hidden bg-slate-300">
+                
+                <!-- 1. Problema (Col 1-2, Row 1-2) - ENFOQUE PULL: PASO 1 EN AMARILLO DORADO WONKUP -->
+                <div class="col-span-2 row-span-2 canvas-block bg-[#f1c22d]/5 border-r-2 border-[#f1c22d]/20" id="block-problema" style="margin: 1px;" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, 'problema')">
+                    <div class="block-header border-[#f1c22d]/20">
+                        <div>
+                            <span class="text-[9px] font-black text-slate-900 bg-[#f1c22d] px-2 py-0.5 rounded-full uppercase tracking-wider block w-max mb-1">Paso 1: El Problema</span>
+                            <h3 class="font-black text-[#d0a31d] text-sm uppercase tracking-wide"><span class="text-lg mr-1">⚠️</span> Problema</h3>
+                            <p class="text-[10px] text-slate-500 leading-tight mt-1">Los 3 problemas principales de tu cliente objetivo.</p>
+                        </div>
+                        <button onclick="openNoteModal('problema', 'bg-yellow-200')" class="add-note-btn text-[#f1c22d] hover:text-[#d0a31d] transition-colors"><i class="fas fa-plus-circle text-lg"></i></button>
+                    </div>
+                    <div class="notes-container flex-grow overflow-y-auto"></div>
+                </div>
+
+                <!-- 2. Solución (Col 3-4, Row 1) -->
+                <div class="col-span-2 row-span-1 canvas-block" id="block-solucion" style="margin: 1px;" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, 'solucion')">
+                    <div class="block-header">
+                        <div>
+                            <h3 class="font-bold text-slate-700 text-sm uppercase tracking-wide"><span class="text-lg mr-1">⚙️</span> Solución</h3>
+                            <p class="text-[10px] text-slate-500 leading-tight mt-1">Características de tu producto mínimo viable (MVP).</p>
+                        </div>
+                        <button onclick="openNoteModal('solucion')" class="add-note-btn text-slate-400 hover:text-[#50a8f3] transition-colors"><i class="fas fa-plus-circle text-lg"></i></button>
+                    </div>
+                    <div class="notes-container flex-grow overflow-y-auto"></div>
+                </div>
+
+                <!-- 3. Propuesta Única de Valor (Col 5-6, Row 1-2) -->
+                <div class="col-span-2 row-span-2 canvas-block" id="block-propuesta" style="margin: 1px;" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, 'propuesta')">
+                    <div class="block-header">
+                        <div>
+                            <h3 class="font-bold text-slate-700 text-sm uppercase tracking-wide"><span class="text-lg mr-1">💎</span> Propuesta Única</h3>
+                            <p class="text-[10px] text-slate-500 leading-tight mt-1">Mensaje claro que explica por qué eres diferente y de valor.</p>
+                        </div>
+                        <button onclick="openNoteModal('propuesta')" class="add-note-btn text-slate-400 hover:text-[#50a8f3] transition-colors"><i class="fas fa-plus-circle text-lg"></i></button>
+                    </div>
+                    <div class="notes-container flex-grow overflow-y-auto"></div>
+                </div>
+
+                <!-- 4. Ventaja Especial / Injusta (Col 7-8, Row 1) -->
+                <div class="col-span-2 row-span-1 canvas-block" id="block-ventaja" style="margin: 1px;" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, 'ventaja')">
+                    <div class="block-header">
+                        <div>
+                            <h3 class="font-bold text-slate-700 text-sm uppercase tracking-wide"><span class="text-lg mr-1">⭐</span> Ventaja Especial</h3>
+                            <p class="text-[10px] text-slate-500 leading-tight mt-1">Algo que no se puede copiar o comprar fácilmente.</p>
+                        </div>
+                        <button onclick="openNoteModal('ventaja')" class="add-note-btn text-slate-400 hover:text-[#50a8f3] transition-colors"><i class="fas fa-plus-circle text-lg"></i></button>
+                    </div>
+                    <div class="notes-container flex-grow overflow-y-auto"></div>
+                </div>
+
+                <!-- 5. Segmentos de Clientes (Col 9-10, Row 1-2) - ENFOQUE PULL: PASO 2 EN AZUL CIELO WONKUP -->
+                <div class="col-span-2 row-span-2 canvas-block bg-[#50a8f3]/5 border-l-2 border-[#50a8f3]/20" id="block-clientes" style="margin: 1px;" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, 'clientes')">
+                    <div class="block-header border-[#50a8f3]/20">
+                        <div>
+                            <span class="text-[9px] font-black text-white bg-[#50a8f3] px-2 py-0.5 rounded-full uppercase tracking-wider block w-max mb-1">Paso 2: El Cliente</span>
+                            <h3 class="font-black text-[#3b8fd3] text-sm uppercase tracking-wide"><span class="text-lg mr-1">👥</span> Segmento / Adopters</h3>
+                            <p class="text-[10px] text-slate-500 leading-tight mt-1">Tu público objetivo y tus adoptantes tempranos (*Early Adopters*).</p>
+                        </div>
+                        <button onclick="openNoteModal('clientes', 'bg-blue-200')" class="add-note-btn text-[#50a8f3] hover:text-[#3ca0f0] transition-colors"><i class="fas fa-plus-circle text-lg"></i></button>
+                    </div>
+                    <div class="notes-container flex-grow overflow-y-auto"></div>
+                </div>
+
+                <!-- 6. Métricas Clave (Col 3-4, Row 2) -->
+                <div class="col-span-2 row-span-1 canvas-block" id="block-metricas" style="margin: 1px;" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, 'metricas')">
+                    <div class="block-header">
+                        <div>
+                            <h3 class="font-bold text-slate-700 text-sm uppercase tracking-wide"><span class="text-lg mr-1">📈</span> Métricas Clave</h3>
+                            <p class="text-[10px] text-slate-500 leading-tight mt-1">Indicadores clave para medir si tu negocio avanza bien.</p>
+                        </div>
+                        <button onclick="openNoteModal('metricas')" class="add-note-btn text-slate-400 hover:text-[#50a8f3] transition-colors"><i class="fas fa-plus-circle text-lg"></i></button>
+                    </div>
+                    <div class="notes-container flex-grow overflow-y-auto"></div>
+                </div>
+
+                <!-- 7. Canales (Col 7-8, Row 2) -->
+                <div class="col-span-2 row-span-1 canvas-block" id="block-canales" style="margin: 1px;" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, 'canales')">
+                    <div class="block-header">
+                        <div>
+                            <h3 class="font-bold text-slate-700 text-sm uppercase tracking-wide"><span class="text-lg mr-1">🚀</span> Canales</h3>
+                            <p class="text-[10px] text-slate-500 leading-tight mt-1">Tu ruta o camino hacia tus segmentos de clientes.</p>
+                        </div>
+                        <button onclick="openNoteModal('canales')" class="add-note-btn text-slate-400 hover:text-[#50a8f3] transition-colors"><i class="fas fa-plus-circle text-lg"></i></button>
+                    </div>
+                    <div class="notes-container flex-grow overflow-y-auto"></div>
+                </div>
+
+                <!-- 8. Estructura de Costes (Col 1-5, Row 3) -->
+                <div class="col-span-5 row-span-1 canvas-block" id="block-costes" style="margin: 1px;" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, 'costes')">
+                    <div class="block-header">
+                        <div>
+                            <h3 class="font-bold text-slate-700 text-sm uppercase tracking-wide"><span class="text-lg mr-1">💸</span> Estructura de Costes</h3>
+                            <p class="text-[10px] text-slate-500 leading-tight mt-1">Tus costes de desarrollo, marketing, personal e infraestructura.</p>
+                        </div>
+                        <button onclick="openNoteModal('costes', 'bg-pink-200')" class="add-note-btn text-slate-400 hover:text-[#50a8f3] transition-colors"><i class="fas fa-plus-circle text-lg"></i></button>
+                    </div>
+                    <div class="notes-container flex-grow grid grid-cols-2 gap-2 overflow-y-auto"></div>
+                </div>
+
+                <!-- 9. Flujo de Ingresos (Col 6-10, Row 3) -->
+                <div class="col-span-5 row-span-1 canvas-block" id="block-ingresos" style="margin: 1px;" ondragover="allowDrop(event)" ondragleave="dragLeave(event)" ondrop="handleDrop(event, 'ingresos')">
+                    <div class="block-header">
+                        <div>
+                            <h3 class="font-bold text-slate-700 text-sm uppercase tracking-wide"><span class="text-lg mr-1">💰</span> Flujo de Ingresos</h3>
+                            <p class="text-[10px] text-slate-500 leading-tight mt-1">Fuentes de ingresos, modelos de suscripción, venta o comisiones.</p>
+                        </div>
+                        <button onclick="openNoteModal('ingresos', 'bg-green-200')" class="add-note-btn text-slate-400 hover:text-[#50a8f3] transition-colors"><i class="fas fa-plus-circle text-lg"></i></button>
+                    </div>
+                    <div class="notes-container flex-grow grid grid-cols-2 gap-2 overflow-y-auto"></div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- MODALES DE UI -->
+    
+    <!-- Modal de Mensajes / Errores -->
+    <div id="msg-modal" class="hidden fixed inset-0 z-[110] bg-slate-900/60 flex justify-center items-center backdrop-blur-sm font-sans">
+        <div class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 m-4">
+            <h3 id="msg-title" class="text-xl font-bold text-slate-800 mb-2 font-sans">Mensaje</h3>
+            <p id="msg-body" class="text-slate-600 mb-6 font-sans"></p>
+            <div class="flex justify-end font-sans">
+                <button onclick="closeModal('msg-modal')" class="bg-[#50a8f3] hover:bg-[#3ca0f0] text-white font-semibold py-2 px-6 rounded transition-colors font-sans">Entendido</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Agregar/Editar Nota Manual -->
+    <div id="add-note-modal" class="hidden fixed inset-0 z-[100] bg-slate-900/60 flex justify-center items-center backdrop-blur-sm font-sans">
+        <div class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 m-4 relative">
+            <h3 id="modal-title" class="text-lg font-bold text-slate-800 mb-4 font-sans">Añadir Nueva Idea</h3>
+            <textarea id="manual-note-input" rows="3" class="w-full border-2 border-slate-200 rounded-lg p-3 text-slate-700 focus:outline-none focus:border-[#50a8f3] mb-4 resize-none font-sans" placeholder="Escribe tu idea aquí..."></textarea>
+            
+            <div class="mb-4">
+                <p class="text-xs text-slate-500 mb-2 font-bold uppercase font-sans">Color del Post-it</p>
+                <div class="flex gap-2">
+                    <button class="w-6 h-6 rounded-full bg-[#f1c22d]/40 border-2 border-transparent hover:border-slate-400 focus:border-slate-800 color-pick-btn" data-color="bg-yellow-200" title="Amarillo WonkUp"></button>
+                    <button class="w-6 h-6 rounded-full bg-[#50a8f3]/40 border-2 border-transparent hover:border-slate-400 focus:border-slate-800 color-pick-btn" data-color="bg-blue-200" title="Cielo WonkUp"></button>
+                    <button class="w-6 h-6 rounded-full bg-green-200 border-2 border-transparent hover:border-slate-400 focus:border-slate-800 color-pick-btn" data-color="bg-green-200"></button>
+                    <button class="w-6 h-6 rounded-full bg-pink-200 border-2 border-transparent hover:border-slate-400 focus:border-slate-800 color-pick-btn" data-color="bg-pink-200"></button>
+                    <button class="w-6 h-6 rounded-full bg-indigo-200 border-2 border-transparent hover:border-slate-400 focus:border-slate-800 color-pick-btn" data-color="bg-indigo-200"></button>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 font-sans">
+                <button onclick="closeModal('add-note-modal')" class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold py-2 px-4 rounded transition-colors font-sans">Cancelar</button>
+                <button id="submit-btn" onclick="submitManualNote()" class="bg-[#50a8f3] hover:bg-[#3ca0f0] text-white font-semibold py-2 px-6 rounded transition-colors font-sans">Añadir</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // LÓGICA DE LA APLICACIÓN
+        let currentTargetBlock = null;
+        let selectedColor = 'bg-yellow-200';
+        let editingPostIt = null; // Guardará la referencia si estamos editando un post-it existente
+
+        // Manejo de Drag and Drop
+        function allowDrop(ev) {
+            ev.preventDefault();
+            ev.currentTarget.classList.add('dragover');
+        }
+
+        function dragLeave(ev) {
+            ev.currentTarget.classList.remove('dragover');
+        }
+
+        function handleDragStart(ev) {
+            ev.dataTransfer.setData("text/plain", ev.target.id);
+        }
+
+        function handleDrop(ev, blockId) {
+            ev.preventDefault();
+            const blockElement = document.getElementById(`block-${blockId}`);
+            if (blockElement) {
+                blockElement.classList.remove('dragover');
+            }
+            const container = document.querySelector(`#block-${blockId} .notes-container`);
+            const noteId = ev.dataTransfer.getData("text/plain");
+            const noteElement = document.getElementById(noteId);
+            
+            if (noteElement && container) {
+                container.appendChild(noteElement);
+            }
+        }
+
+        // Manejo de UI de Modales
+        function showMsg(title, body) {
+            document.getElementById('msg-title').innerText = title;
+            document.getElementById('msg-body').innerText = body;
+            document.getElementById('msg-modal').classList.remove('hidden');
+        }
+
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+        // Convertidor de imagen a DataURL de seguridad (CORS y offline Proof)
+        function convertImageToDataURL(imgElement) {
+            if (imgElement.src.startsWith('data:')) return;
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = imgElement.naturalWidth;
+            canvas.height = imgElement.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            try {
+                ctx.drawImage(imgElement, 0, 0);
+                const dataURL = canvas.toDataURL('image/png');
+                imgElement.src = dataURL;
+                imgElement.removeAttribute('crossorigin');
+            } catch (e) {
+                console.warn("No se pudo convertir el logo a Data URL. Se usará el respaldo de texto durante la exportación:", e);
+            }
+        }
+
+        // Manejo ultra seguro de logos rotos para evitar que bloqueen el canvas de exportación
+        function handleImageError(imgElement, fallbackId) {
+            imgElement.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+            imgElement.classList.add('hidden');
+            
+            const fallback = document.getElementById(fallbackId);
+            if (fallback) fallback.classList.remove('hidden');
+        }
+
+        function showTextLogoFallback() {
+            handleImageError(document.getElementById('header-logo'), 'text-logo-fallback');
+        }
+
+        // Configurar selección de colores en el modal
+        document.querySelectorAll('.color-pick-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                selectedColor = e.target.getAttribute('data-color');
+                document.querySelectorAll('.color-pick-btn').forEach(b => b.classList.remove('border-slate-800'));
+                e.target.classList.add('border-slate-800');
+            });
+        });
+
+        function selectColorForModal(colorClass) {
+            selectedColor = colorClass;
+            document.querySelectorAll('.color-pick-btn').forEach(b => {
+                if(b.getAttribute('data-color') === colorClass) {
+                    b.classList.add('border-slate-800');
+                } else {
+                    b.classList.remove('border-slate-800');
+                }
+            });
+        }
+
+        // Abrir modal en Modo CREAR
+        function openNoteModal(blockId, defaultColor = 'bg-yellow-200') {
+            currentTargetBlock = blockId;
+            editingPostIt = null; // Resetear modo edición
+            
+            document.getElementById('modal-title').innerText = 'Añadir Nueva Idea';
+            document.getElementById('submit-btn').innerText = 'Añadir';
+            document.getElementById('manual-note-input').value = '';
+            
+            selectColorForModal(defaultColor);
+            openModal('add-note-modal');
+            setTimeout(() => document.getElementById('manual-note-input').focus(), 100);
+        }
+
+        // Abrir modal en Modo EDITAR
+        function editPostIt(editBtn) {
+            const postIt = editBtn.closest('.post-it');
+            editingPostIt = postIt; // Referenciar la nota que vamos a editar
+            currentTargetBlock = null;
+            
+            document.getElementById('modal-title').innerText = 'Editar Idea';
+            document.getElementById('submit-btn').innerText = 'Guardar Cambios';
+            
+            const currentText = postIt.dataset.rawText || '';
+            const currentColor = postIt.dataset.color || 'bg-yellow-200';
+            
+            document.getElementById('manual-note-input').value = currentText;
+            selectColorForModal(currentColor);
+            
+            openModal('add-note-modal');
+            setTimeout(() => document.getElementById('manual-note-input').focus(), 100);
+        }
+
+        // Enviar formulario del Modal (Crear o Guardar Cambios)
+        function submitManualNote() {
+            const text = document.getElementById('manual-note-input').value.trim();
+            if (!text) {
+                showMsg('Error', 'La nota no puede estar vacía.');
+                return;
+            }
+
+            if (editingPostIt) {
+                editingPostIt.dataset.rawText = text;
+                editingPostIt.dataset.color = selectedColor;
+                editingPostIt.className = `post-it ${selectedColor} relative group`;
+                
+                const formattedText = text.replace(/\n/g, '<br>');
+                editingPostIt.querySelector('.post-it-content').innerHTML = formattedText;
+            } else {
+                createPostIt(currentTargetBlock, text, selectedColor);
+            }
+
+            closeModal('add-note-modal');
+        }
+
+        // Crear elemento DOM del post-it (Ahora 100% Arrastrable)
+        function createPostIt(blockId, text, colorClass = 'bg-yellow-200') {
+            const container = document.querySelector(`#block-${blockId} .notes-container`);
+            if(!container) return;
+
+            const postItId = 'note-' + Date.now() + Math.floor(Math.random() * 100);
+            const postIt = document.createElement('div');
+            
+            postIt.id = postItId;
+            postIt.draggable = true;
+            postIt.addEventListener('dragstart', handleDragStart);
+            postIt.className = `post-it ${colorClass} relative group`;
+            postIt.dataset.rawText = text;
+            postIt.dataset.color = colorClass;
+
+            const formattedText = text.replace(/\n/g, '<br>');
+
+            postIt.innerHTML = `
+                <div class="post-it-content pr-6 font-semibold">${formattedText}</div>
+                <div class="absolute top-1 right-1 flex gap-[2px] opacity-0 group-hover:opacity-100 transition-opacity bg-white/40 backdrop-blur-sm rounded px-1 py-0.5 no-print">
+                    <i class="fas fa-pencil-alt text-slate-600 hover:text-indigo-700 cursor-pointer text-[11px] p-1" onclick="editPostIt(this)" title="Editar nota"></i>
+                    <i class="fas fa-times text-slate-600 hover:text-red-600 cursor-pointer text-[11px] p-1" onclick="this.closest('.post-it').remove()" title="Eliminar nota"></i>
+                </div>
+            `;
+            container.appendChild(postIt);
+        }
+
+        // EXPORTACIÓN A PDF DINÁMICA Y CENTRADA
+        function exportToPDF() {
+            const canvas = document.getElementById('pdf-canvas');
+            canvas.classList.add('exporting');
+
+            setTimeout(() => {
+                let width = canvas.offsetWidth;
+                let height = canvas.offsetHeight;
+
+                if (!width || width < 300) width = 1150;
+                if (!height || height < 300) height = 800;
+
+                const opt = {
+                    margin:       0,
+                    filename:     'Lean_Canvas_WonkUp.pdf',
+                    image:        { type: 'jpeg', quality: 0.98 },
+                    html2canvas:  { scale: 2, useCORS: true, logging: false },
+                    jsPDF:        { unit: 'px', format: [width, height], orientation: 'landscape', hotfixes: ['px_scaling'] }
+                };
+
+                html2pdf().set(opt).from(canvas).save().then(() => {
+                    canvas.classList.remove('exporting');
+                }).catch(err => {
+                    console.error("Error al exportar PDF:", err);
+                    canvas.classList.remove('exporting');
+                    showMsg("Error", "No se pudo generar el PDF en este navegador. Por favor, vuelve a intentarlo.");
+                });
+            }, 100);
+        }
+        
+        // Cargar notas demostrativas al iniciar la web con colores de WonkUp
+        window.onload = function() {
+            setTimeout(() => {
+                createPostIt('problema', 'Pocas herramientas visuales e interactivas adaptadas para emprendimiento escolar.', 'bg-yellow-200');
+                createPostIt('clientes', 'Profesores y alumnos de secundaria que buscan aprender metodologías ágiles.', 'bg-blue-200');
+            }, 300);
+        };
+    </script>
+</body>
+</html>
